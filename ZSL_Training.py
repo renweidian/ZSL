@@ -31,7 +31,7 @@ if __name__ == '__main__':
     BATCH_SIZE=64 
     loss_optimal=1.75
     init_lr1=1e-4
-    init_lr2=5e-4
+    init_lr2=10e-4
     decay_power=1.5
     data2='pavia'
     [HSI0,MSI0,HRHSI]=dataset_input(data2,downsample_factor)
