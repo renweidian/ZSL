@@ -109,7 +109,8 @@ def create_F():
 
 
 def  dataset_input(data_put,downsample_factor):
-  if data_put=='pavia': 
+  if data_put=='pavia':
+        PSF = fspecial('gaussian', 7, 3)
         F=loadmat('.\data\R.mat')
         F=F['R']
         F=F[:,0:-10]
@@ -121,33 +122,11 @@ def  dataset_input(data_put,downsample_factor):
         HRHSI=tifffile.imread('.\data\original_rosis.tif')
         HRHSI=HRHSI[0:-10,0:downsample_factor**2*int(HRHSI.shape[1]/downsample_factor**2),0:downsample_factor**2*int(HRHSI.shape[2]/downsample_factor**2)]
         HRHSI=HRHSI/np.max(HRHSI)
-  elif data_put=='Chikusei':
-        mat=h5py.File('.\data\Chikusei.mat')
-        HRHSI=mat['chikusei']
-        mat1=sio.loadmat('.\data\Chikusei_data.mat')
-        R=mat1['R']
-        R=R[0:8:2,:]
-        HRHSI=HRHSI[:,100:900,100:900]
-        HRHSI=np.transpose(HRHSI,(0,2,1))
-        x1=np.max(HRHSI)
-        x2=np.min(HRHSI)
-        x3=-x2/(x1-x2)
-        HRHSI=HRHSI/(x1-x2)+x3
-  elif data_put=='houston':
-        mat=sio.loadmat('.\data\Houston.mat')
-        HRHSI=mat['Houston']
-        HRHSI=np.transpose(HRHSI,(2,0,1))
-        HRHSI=HRHSI[:,0:336,100:900]
-        x1=np.max(HRHSI)
-        x2=np.min(HRHSI)
-        x3=-x2/(x1-x2)
-        HRHSI=HRHSI/(x1-x2)+x3
-        R=np.zeros((4,HRHSI.shape[0]));
-        for i in range(R.shape[0]):
-          R[i,36*i:36*(i+1)]=1/36.0 
+        HSI=Gaussian_downsample(HRHSI,PSF,downsample_factor)
+        MSI=np.tensordot(R,  HRHSI, axes=([1], [0]))
   else:
         sys.exit(0)
-  return HRHSI,R
+  return HSI,MSI,HRHSI
 
 def  savedata(dataset,R,training_size,stride,downsample_factor,PSF,num):
          if dataset=='CAVE':
