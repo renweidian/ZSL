@@ -22,10 +22,6 @@ from model1 import *
 
  
 if __name__ == '__main__': 
-    PSF = fspecial('gaussian', 7, 3)
-    Response=h5py.File('Estimated_Responses.mat')
-    PSF= np.transpose(Response['B'])
-    R= np.transpose(Response['R'])
     p=10
     stride=1
     training_size=32
@@ -38,17 +34,12 @@ if __name__ == '__main__':
     init_lr2=5e-4
     decay_power=1.5
     data2='pavia'
-#    [HRHSI,R]=dataset_input(data2,downsample_factor)
-    HRHSI=tifffile.imread('.\data\original_rosis.tif')
-    HRHSI=HRHSI[0:-10,0:downsample_factor**2*int(HRHSI.shape[1]/downsample_factor**2),0:downsample_factor**2*int(HRHSI.shape[2]/downsample_factor**2)]
-    HRHSI=HRHSI/np.max(HRHSI)
+    [HSI0,MSI0,HRHSI]=dataset_input(data2,downsample_factor)
     maxiteration=2*math.ceil(((HRHSI.shape[1]/downsample_factor-training_size)//stride+1)*((HRHSI.shape[2]/downsample_factor-training_size)//stride+1)/BATCH_SIZE)*EPOCH
     print(maxiteration)
-#    maxiteration=80400
     warm_iter=math.floor(maxiteration/40)
     print(maxiteration)
-    HSI0=Gaussian_downsample(HRHSI,PSF,downsample_factor)
-    MSI0=np.tensordot(R,  HRHSI, axes=([1], [0]))
+    
     HSI3=HSI0.reshape(HSI0.shape[0],-1)
     U0,S,V=np.linalg.svd(np.dot(HSI3,HSI3.T))
     U0=U0[:,0:int(p)]
@@ -62,6 +53,9 @@ if __name__ == '__main__':
     train_hrhs = []
     train_hrms = []
     train_lrhs= []
+    Response=h5py.File('Estimated_Responses.mat')
+    PSF_Estimated= np.transpose(Response['B'])
+    R_Estimated= np.transpose(Response['R'])
     for j in augument:       
         HSI = cv2.flip(HSI0, j)
 #        MSI_aug.append(MSI0)
@@ -70,8 +64,8 @@ if __name__ == '__main__':
         HSI = HSI_aug[j]
 #        MSI = MSI_aug[j]
         HSI_Abun=np.tensordot(U.T,  HSI, axes=([1], [0]))
-        HSI_LR_Abun=Gaussian_downsample(HSI_Abun,PSF,downsample_factor)
-        MSI_LR=np.tensordot(R,  HSI, axes=([1], [0])) 
+        HSI_LR_Abun=Gaussian_downsample(HSI_Abun,PSF_Estimated,downsample_factor)
+        MSI_LR=np.tensordot(R_Estimated,  HSI, axes=([1], [0])) 
 #        MSI_LR=Gaussian_downsample(MSI,PSF,downsample_factor) 
         for j in range(0, HSI_Abun.shape[1]-training_size+1, stride):
             for k in range(0, HSI_Abun.shape[2]-training_size+1, stride):
