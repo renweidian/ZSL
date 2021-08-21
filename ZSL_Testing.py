@@ -19,7 +19,7 @@ U0=U0[:,0:int(p)]
 HSI_Abun=np.tensordot(U0.T,  HSI, axes=([1], [0]))
 
 net2=CNN(p,MSI.shape[0]).cuda() 
-net2.load_state_dict(torch.load(data2+'.pkl'))
+net2.load_state_dict(torch.load(data2+'1.pkl'))
 MSI_1=torch.Tensor(np.expand_dims(MSI,axis=0))
 HSI_1=torch.Tensor(np.expand_dims(HSI_Abun,axis=0))
 starttime = time.time()
