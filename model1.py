@@ -107,10 +107,29 @@ def create_F():
             F[band][i] = F[band][i]/div;
      return F
 
+class MyarcLoss(torch.nn.Module):
+    def __init__(self,R,PSF):
+        super(MyarcLoss, self).__init__()
+        self.R=R
+        self.PSF=PSF
+    def forward(self, output, target,MSI,sf):
+        coeff = torch.unsqueeze(self.PSF, 0)
+        coeff = torch.unsqueeze(coeff, 0)
+        coeff = torch.repeat_interleave(coeff, output.shape[1],0)
+        _,c, h, w= output.shape
+        w1,h1=self.PSF.shape
+        outs = functional.conv2d(output, coeff.cuda(), bias=None, stride=sf, padding=int((w1-1)/2),  groups=c)
+        target_HSI = functional.conv2d(target, coeff.cuda(), bias=None, stride=sf, padding=int((w1-1)/2),  groups=c)
+        RTZ = torch.tensordot(output, self.R, dims=([1], [1])) 
+        RTZ=torch.Tensor.permute(RTZ,(0,3,1,2))
+        MSILoss=torch.mean(torch.abs(RTZ-MSI))
+        tragetloss=torch.mean(torch.abs(output-target))
+        HSILoss=torch.mean(torch.abs(outs[:,:,1:-1,1:-1]-target_HSI[:,:,1:-1,1:-1]))
+        loss_total=MSILoss+tragetloss+0.1*HSILoss
+        return loss_total
 
 def  dataset_input(data_put,downsample_factor):
-  if data_put=='pavia':
-        PSF = fspecial('gaussian', 7, 3)
+  if data_put=='pavia': 
         F=loadmat('.\data\R.mat')
         F=F['R']
         F=F[:,0:-10]
@@ -122,11 +141,33 @@ def  dataset_input(data_put,downsample_factor):
         HRHSI=tifffile.imread('.\data\original_rosis.tif')
         HRHSI=HRHSI[0:-10,0:downsample_factor**2*int(HRHSI.shape[1]/downsample_factor**2),0:downsample_factor**2*int(HRHSI.shape[2]/downsample_factor**2)]
         HRHSI=HRHSI/np.max(HRHSI)
-        HSI=Gaussian_downsample(HRHSI,PSF,downsample_factor)
-        MSI=np.tensordot(R,  HRHSI, axes=([1], [0]))
+  elif data_put=='Chikusei':
+        mat=h5py.File('.\data\Chikusei.mat')
+        HRHSI=mat['chikusei']
+        mat1=sio.loadmat('.\data\Chikusei_data.mat')
+        R=mat1['R']
+        R=R[0:8:2,:]
+        HRHSI=HRHSI[:,100:900,100:900]
+        HRHSI=np.transpose(HRHSI,(0,2,1))
+        x1=np.max(HRHSI)
+        x2=np.min(HRHSI)
+        x3=-x2/(x1-x2)
+        HRHSI=HRHSI/(x1-x2)+x3
+  elif data_put=='houston':
+        mat=sio.loadmat('.\data\Houston.mat')
+        HRHSI=mat['Houston']
+        HRHSI=np.transpose(HRHSI,(2,0,1))
+        HRHSI=HRHSI[:,0:336,100:900]
+        x1=np.max(HRHSI)
+        x2=np.min(HRHSI)
+        x3=-x2/(x1-x2)
+        HRHSI=HRHSI/(x1-x2)+x3
+        R=np.zeros((4,HRHSI.shape[0]));
+        for i in range(R.shape[0]):
+          R[i,36*i:36*(i+1)]=1/36.0 
   else:
         sys.exit(0)
-  return HSI,MSI,HRHSI
+  return HRHSI,R
 
 def  savedata(dataset,R,training_size,stride,downsample_factor,PSF,num):
          if dataset=='CAVE':
@@ -174,27 +215,21 @@ class CNN(nn.Module):
     def __init__(self,a,b):
         super(CNN, self).__init__()
         self.conv1 = nn.Sequential(        
-            nn.Conv2d(a+b, 64-b, 3, 1, 1),     
+            nn.Conv2d(a+b, 128-b, 3, 1, 1),     
             nn.LeakyReLU(negative_slope=0.2, inplace=False), 
             )
         self.conv2 = nn.Sequential(        
-        nn.Conv2d(64, 64-b, 3, 1, 1),     
+        nn.Conv2d(128, 128-b, 3, 1, 1),     
         nn.LeakyReLU(negative_slope=0.2, inplace=False), 
         )
         self.conv3 = nn.Sequential(        
-        nn.Conv2d(64, 64-b, 3, 1, 1),     
+        nn.Conv2d(128, 128-b, 3, 1, 1),     
         nn.LeakyReLU(negative_slope=0.2, inplace=False), 
         )
         self.conv4 = nn.Sequential(        
-        nn.Conv2d(64, a, 3, 1, 1),     
+        nn.Conv2d(128, a, 3, 1, 1),     
         )
-#        self.squeeze = nn.AdaptiveAvgPool2d(1)
-#        self.excitation = nn.Sequential(
-#         nn.Linear(10, 2),
-#         nn.ReLU(inplace=True),
-#         nn.Linear(2, 10),
-#         nn.Sigmoid()
-#         )
+
         basecoeff = torch.Tensor([[-4.63495665e-03, -3.63442646e-03,  3.84904063e-18,
                      5.76678319e-03,  1.08358664e-02,  1.01980790e-02,
                     -9.31747402e-18, -1.75033181e-02, -3.17660068e-02,
@@ -225,9 +260,8 @@ class CNN(nn.Module):
                     _,c, h, w= inputs.shape
                     outs = functional.conv_transpose2d(inputs, coeff.cuda(), bias=None, stride=4, padding=21, output_padding=1, groups=c, dilation=1)
                     return outs
-
         x1=Upsample_4(self.coeff,x)    
-#        x1=functional.interpolate(x, size=None, scale_factor=4, mode='bilinear', align_corners=None)   
+#        x1=functional.interpolate(x, size=None, scale_factor=2, mode='bilinear', align_corners=None)   
         x2 = torch.cat((x1,y),1)
         x2 = torch.cat((self.conv1(x2),y),1)
         x2 = torch.cat((self.conv2(x2),y),1)
@@ -236,17 +270,23 @@ class CNN(nn.Module):
         return x3+x1
 class CNNF(nn.Module):
     def __init__(self,a,b):
-        super(CNNF, self).__init__()
+        super(CNN, self).__init__()
+        self.conv1 = nn.Sequential(        
+            nn.Conv2d(a+b, 64-b, 3, 1, 1),     
+            nn.LeakyReLU(negative_slope=0.2, inplace=False), 
+            )
+        self.conv2 = nn.Sequential(        
+        nn.Conv2d(64, 64-b, 3, 1, 1),     
+        nn.LeakyReLU(negative_slope=0.2, inplace=False), 
+        )
         self.conv3 = nn.Sequential(        
-            nn.Conv2d(a+b, 64, 3, 1, 1),     
-            nn.LeakyReLU(negative_slope=0.2, inplace=False), 
-            nn.Conv2d(64, 64, 3, 1, 1), 
-            nn.LeakyReLU(negative_slope=0.2, inplace=False), 
-            nn.Conv2d(64, 64, 3, 1, 1),     
-            nn.LeakyReLU(negative_slope=0.2, inplace=False), 
-            nn.Conv2d(64, a, 3, 1, 1),
-         )
-         
+        nn.Conv2d(64, 64-b, 3, 1, 1),     
+        nn.LeakyReLU(negative_slope=0.2, inplace=False), 
+        )
+        self.conv4 = nn.Sequential(        
+        nn.Conv2d(64, a, 3, 1, 1),     
+        )
+
         basecoeff = torch.Tensor([[-4.63495665e-03, -3.63442646e-03,  3.84904063e-18,
                      5.76678319e-03,  1.08358664e-02,  1.01980790e-02,
                     -9.31747402e-18, -1.75033181e-02, -3.17660068e-02,
@@ -266,19 +306,22 @@ class CNNF(nn.Module):
         coeff = torch.Tensor(coeff)
         coeff = torch.unsqueeze(coeff, 0)
         coeff = torch.unsqueeze(coeff, 0)
-        self.coeff = torch.repeat_interleave(coeff, 10,0)
+        self.coeff = torch.repeat_interleave(coeff, a,0)
         psf=fspecial('gaussian', 7, 3)
         psf = torch.Tensor(psf)
         psf = torch.unsqueeze(psf, 0)
         psf = torch.unsqueeze(psf, 0)
-        self.psf = torch.repeat_interleave(psf, 10,0)
+        self.psf = torch.repeat_interleave(psf, a,0)
     def forward(self, x,y):
-        def Upsample_4(coeff,inputs):     
-                    _,c, h, w= inputs.shape
-                    outs = functional.conv_transpose2d(inputs, coeff.cuda(), bias=None, stride=4, padding=21, output_padding=1, groups=c, dilation=1)
-                    return outs
-        x1=Upsample_4(self.coeff,x)    
-#        x1=functional.interpolate(x, size=None, scale_factor=4, mode='bilinear', align_corners=None)   
+#        def Upsample_4(coeff,inputs):     
+#                    _,c, h, w= inputs.shape
+#                    outs = functional.conv_transpose2d(inputs, coeff.cuda(), bias=None, stride=4, padding=21, output_padding=1, groups=c, dilation=1)
+#                    return outs
+#        x1=Upsample_4(self.coeff,x)    
+        x1=functional.interpolate(x, size=None, scale_factor=2, mode='bilinear', align_corners=None)   
         x2 = torch.cat((x1,y),1)
-        x2 = self.conv3(x2)
-        return x2+x1
+        x2 = torch.cat((self.conv1(x2),y),1)
+        x2 = torch.cat((self.conv2(x2),y),1)
+        x2 = torch.cat((self.conv3(x2),y),1)
+        x3 = self.conv4(x2)
+        return x3+x1
