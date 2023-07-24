@@ -5,12 +5,12 @@ Created on Mon Oct 19 21:47:13 2020
 @author: Dian
 """
 from model1 import *
-#model1='nosubsapce'
-#data2='houston'
 data2='pavia'
 PSF = fspecial('gaussian', 7, 3)
 downsample_factor=4
-[HSI,MSI,HRHSI]=dataset_input(data2,downsample_factor)
+[HRHSI,R]=dataset_input(data2,downsample_factor)
+MSI=np.tensordot(R,  HRHSI, axes=([1], [0]))
+HSI=Gaussian_downsample(HRHSI,PSF,downsample_factor)
 
 p=10
 HSI3=HSI.reshape(HSI.shape[0],-1)
